@@ -1,0 +1,188 @@
+\documentclass[11pt,a4paper]{article}
+
+% ======================
+% Packages
+% ======================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% ======================
+% Metadata
+% ======================
+\title{\textbf{Quant-Safe Explainable Artificial Intelligence for Dynamic Portfolio Management}}
+\author{
+\textbf{Panagiotis Karmiris} \\
+Independent Researcher \\
+\texttt{unbinder@msn.com}
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ======================
+% Abstract
+% ======================
+\begin{abstract}
+Machine learning applications in finance frequently exhibit strong in-sample performance yet fail under real-world deployment due to data leakage, look-ahead bias, and a lack of interpretability. This paper introduces a \textit{Quant-Safe} Explainable Artificial Intelligence (XAI) pipeline designed to mitigate these risks through strict temporal validation, point-in-time feature construction, and out-of-sample explainability. Building upon recent XAI frameworks applied to Small and Medium Enterprises (SMEs), we adapt the methodology to liquid public equities and validate it on the Dow Jones Industrial Average constituents from 2015 to 2025. Using an XGBoost regressor and SHAP-based interpretation, we demonstrate that the model learns economically meaningful regime dynamics, particularly the negative impact of rising interest rates during the 2022 tightening cycle. The proposed strategy achieves significant capital preservation during market stress while remaining fully reproducible and deployable in live trading environments.
+\end{abstract}
+
+% ======================
+\section{Introduction}
+% ======================
+Machine learning techniques have become increasingly prominent in asset pricing and portfolio construction \citep{gu2018empirical}. While nonlinear models such as Gradient Boosting Decision Trees (GBDT) offer superior predictive flexibility compared to linear factor models, they introduce significant challenges related to interpretability and robustness \citep{chen2016xgboost}.
+
+A growing body of literature highlights that many reported financial ML successes are artifacts of data leakage, overfitting, or improper validation protocols \citep{lopez2018advances, bailey2014probability}. Consequently, there is a growing demand for architectures that prioritize methodological rigor and transparency over raw predictive performance.
+
+This study contributes by proposing a \textit{Quant-Safe} pipeline that enforces strict temporal causality, integrates explainability directly into the validation loop, and bridges the gap between academic backtesting and live trading deployment.
+
+Our contributions are threefold:
+\begin{enumerate}
+    \item We formalize a Quant-Safe architecture that eliminates common sources of financial data leakage.
+    \item We demonstrate the use of out-of-sample SHAP values to detect macroeconomic regime shifts.
+    \item We provide a fully reproducible, open-source implementation suitable for live portfolio management.
+\end{enumerate}
+
+% ======================
+\section{Methodology}
+% ======================
+
+\subsection{The Quant-Safe Architectural Principle}
+The Quant-Safe principle asserts that a financial ML model is valid only if all information used at prediction time was observable at that moment in history. This principle governs feature construction, model training, validation, and explainability.
+
+\subsection{Algorithmic Overview}
+
+\begin{algorithm}[H]
+\caption{Quant-Safe Explainable ML Pipeline}
+\label{alg:quant_safe}
+\begin{algorithmic}[1]
+\REQUIRE Asset prices $\{P_{i,t}\}$, macro variables $\{M_t\}$, horizon $H$, rebalance schedule $\mathcal{T}$
+\ENSURE Out-of-sample predictions $\hat{y}_{i,t}$, portfolio weights $w_{i,t}$, SHAP explanations
+
+\STATE Align asset and macro data on a common trading calendar
+\STATE Forward-fill macro variables only (no backward fill)
+
+\FOR{each asset $i$}
+    \STATE Compute technical features: momentum (1M, 3M, 6M), volatility (3M), RSI
+    \STATE Construct label (only for evaluation): $y_{i,t} \leftarrow P_{i,t+H}/P_{i,t} - 1$
+\ENDFOR
+
+\FOR{each rebalance time $t \in \mathcal{T}$ (walk-forward evaluation)}
+    \STATE Train model on labeled history $\{(\mathbf{x}_{i,\tau}, y_{i,\tau}) : \tau < t\}$
+    \STATE Score out-of-sample predictions $\hat{y}_{i,t} \leftarrow f(\mathbf{x}_{i,t})$
+    \STATE Compute SHAP values on out-of-sample fold only
+    \STATE Form portfolio: select top $N$, apply volatility scaling, caps, and cash buffer
+\ENDFOR
+
+\STATE \textbf{Live inference mode:} train once on all labeled history; score latest unlabeled rows
+\STATE Persist signals, trades, positions, and mark-to-market performance logs
+\end{algorithmic}
+\end{algorithm}
+
+
+\subsection{Feature Engineering}
+The model combines technical and macroeconomic predictors:
+\begin{itemize}
+    \item Momentum (1M, 3M, 6M)
+    \item Volatility (3M rolling)
+    \item Relative Strength Index (RSI)
+    \item Macroeconomic indicators: S\&P 500, VIX, crude oil, gold, and U.S. 10-Year Treasury yield
+\end{itemize}
+
+Macroeconomic variables are transformed into rolling z-scores to capture regime deviations rather than absolute levels.
+
+\subsection{Model Specification}
+We employ an XGBoost regressor with a squared-error objective. Hyperparameters are selected conservatively to avoid excessive model complexity. Importantly, retraining occurs only within the validation loop and never during live inference.
+
+\subsection{Explainability via SHAP}
+Shapley Additive Explanations (SHAP) are computed strictly on out-of-sample predictions \citep{lundberg2017unified}. This avoids attribution bias and enables a historical record of how the model’s decision logic evolves across regimes.
+
+% ======================
+\subsection{Data Leakage Failure Modes and Mitigations}
+% ======================
+
+\textbf{Look-Ahead Bias:} Prevented by excluding unlabeled rows from training.
+
+\textbf{Temporal Feature Leakage:} Prevented through forward-only macro alignment.
+
+\textbf{In-Sample Explainability Bias:} Prevented by computing SHAP exclusively on test folds.
+
+\textbf{Validation–Production Mismatch:} Walk-forward retraining is used only for validation, while live inference uses a single model trained on all available history.
+
+\textbf{Universe Selection Bias:} This study uses current Dow Jones constituents, introducing survivorship bias. As such, the focus is on methodological robustness rather than absolute historical return estimates.
+
+% ======================
+\section{Portfolio Construction}
+% ======================
+Assets are ranked by predicted 6-month returns. The top $N=5$ assets are selected and weighted using inverse-volatility scaling:
+\[
+w_i = \frac{1/\sigma_i}{\sum_{j=1}^{N} 1/\sigma_j}
+\]
+Position caps and a cash buffer are applied. Transaction costs of 15 basis points per turnover are assumed.
+
+% ======================
+\section{Results}
+% ======================
+
+\subsection{Performance Evaluation}
+The strategy was evaluated on Dow Jones constituents from 2015–2025.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{equity_curve.png}
+\caption{Cumulative equity curve (log scale) versus Dow Jones benchmark.}
+\end{figure}
+
+The model exhibits strong drawdown control during the 2022 tightening cycle, a period during which traditional momentum strategies underperformed.
+
+\subsection{Explainability and Regime Detection}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{shap_summary.png}
+\caption{Global out-of-sample SHAP feature importance. Interest rate variables dominate during stress regimes.}
+\end{figure}
+
+The dominance of U.S. 10-Year yield SHAP values during 2022 indicates that the model internalized macroeconomic valuation effects rather than relying solely on price trends.
+
+\subsection{Comparison with Naïve ML Backtests}
+
+\begin{table}[H]
+\centering
+\caption{Quant-Safe Pipeline vs Naïve ML Backtests}
+\begin{tabular}{lcc}
+\toprule
+Aspect & Naïve ML & Quant-Safe \\
+\midrule
+Temporal validation & Random / K-fold & Walk-forward \\
+Feature timing & Implicit future data & Point-in-time only \\
+Explainability & In-sample & Out-of-sample \\
+Portfolio constraints & None & Volatility-scaled \\
+Live deployability & No & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ======================
+\section{Conclusion}
+% ======================
+This paper demonstrates that robust, explainable financial ML systems are achievable when strict temporal discipline is enforced. The Quant-Safe architecture provides a reproducible blueprint for bridging academic modeling and real-world trading, emphasizing interpretability and capital preservation over fragile headline returns.
+
+Future work will extend the framework to other markets and incorporate point-in-time index membership data.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
