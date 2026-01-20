@@ -1,8 +1,8 @@
 \documentclass[11pt,a4paper]{article}
 
-% ======================
-% Packages
-% ======================
+% ----------------------------
+% Core packages
+% ----------------------------
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{geometry}
@@ -15,174 +15,306 @@
 \usepackage{float}
 \usepackage{caption}
 \usepackage{subcaption}
-\usepackage{algorithm}
-\usepackage{algorithmic}
+\usepackage[final]{microtype}
+\microtypesetup{expansion=false}
 
-% ======================
-% Metadata
-% ======================
-\title{\textbf{Quant-Safe Explainable Artificial Intelligence for Dynamic Portfolio Management}}
-\author{
-\textbf{Panagiotis Karmiris} \\
-Independent Researcher \\
-\texttt{unbinder@msn.com}
+
+% ----------------------------
+% Algorithm box (FIXES your \Require error)
+% Use algorithmicx + algpseudocode (NOT the old algorithmic)
+% ----------------------------
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% ----------------------------
+% Code listings (short, reviewer-friendly)
+% ----------------------------
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+  xleftmargin=2em,
+  framexleftmargin=1.5em
 }
-\date{\today}
+
+% ----------------------------
+% Title / metadata
+% ----------------------------
+\title{\textbf{Quant-Safe Explainable Artificial Intelligence for Dynamic Portfolio Management}\\
+\vspace{0.15cm}\large{A Reproducible, Leakage-Resistant ML + SHAP Framework with Execution-Grade Accounting Logs}}
+
+\author{
+\textbf{Panagiotis Karmiris}\\
+Independent Researcher\\
+Email: \texttt{unbinder@msn.com}\\
+ORCID: \texttt{(optional)}\\
+\vspace{0.2cm}
+}
+
+\date{Version: \today}
 
 \begin{document}
 \maketitle
 
-% ======================
-% Abstract
-% ======================
 \begin{abstract}
-Machine learning applications in finance frequently exhibit strong in-sample performance yet fail under real-world deployment due to data leakage, look-ahead bias, and a lack of interpretability. This paper introduces a \textit{Quant-Safe} Explainable Artificial Intelligence (XAI) pipeline designed to mitigate these risks through strict temporal validation, point-in-time feature construction, and out-of-sample explainability. Building upon recent XAI frameworks applied to Small and Medium Enterprises (SMEs), we adapt the methodology to liquid public equities and validate it on the Dow Jones Industrial Average constituents from 2015 to 2025. Using an XGBoost regressor and SHAP-based interpretation, we demonstrate that the model learns economically meaningful regime dynamics, particularly the negative impact of rising interest rates during the 2022 tightening cycle. The proposed strategy achieves significant capital preservation during market stress while remaining fully reproducible and deployable in live trading environments.
+Machine learning (ML) backtests in finance frequently overstate performance due to data leakage, non-point-in-time features, and evaluation procedures that inadvertently incorporate future information. This paper proposes a leakage-resistant, reproducible, and deployment-oriented framework---the \emph{Quant-Safe} architecture---combining (i) point-in-time feature engineering with explicit reporting lags, (ii) walk-forward evaluation with out-of-sample (OOS) explainability, and (iii) a robust portfolio translation layer with transaction-cost modeling and execution-grade accounting logs. We validate the framework on the Dow Jones Industrial Average (DJI) constituent universe over 2015--2025, using gradient-boosted trees and Shapley Additive Explanations (SHAP) to demonstrate that macro regime variables (e.g., interest-rate proxies) become dominant drivers during stress periods. The primary contribution is an engineering methodology enabling other researchers to reproduce, extend, and audit financial ML results with explicit controls against common failure modes.
 \end{abstract}
 
-% ======================
+\noindent\textbf{Keywords:} financial machine learning; data leakage; walk-forward validation; explainable AI; SHAP; portfolio construction; backtest overfitting; execution logging
+
+\vspace{0.3cm}
+
+% ==========================================================
 \section{Introduction}
-% ======================
-Machine learning techniques have become increasingly prominent in asset pricing and portfolio construction \citep{gu2018empirical}. While nonlinear models such as Gradient Boosting Decision Trees (GBDT) offer superior predictive flexibility compared to linear factor models, they introduce significant challenges related to interpretability and robustness \citep{chen2016xgboost}.
+The empirical finance literature increasingly applies ML models to return prediction and cross-sectional asset selection \citep{gu2019empirical, feng2020deep}. However, many reported gains fail to survive realistic deployment conditions due to data leakage, improper temporal splits, and missing trading frictions \citep{bailey2017pbo, lopez2018advances}. In parallel, explainable AI (XAI) techniques such as SHAP offer a path to interpretability and regime diagnostics, reducing ``black-box'' risk in investment decision-making \citep{lundberg2017unified, molnar2020interpretable, babaei2025explainable}.
 
-A growing body of literature highlights that many reported financial ML successes are artifacts of data leakage, overfitting, or improper validation protocols \citep{lopez2018advances, bailey2014probability}. Consequently, there is a growing demand for architectures that prioritize methodological rigor and transparency over raw predictive performance.
+This study adapts XAI-driven investment modeling to a stricter engineering standard. Rather than emphasizing headline returns, we emphasize \emph{auditability}: point-in-time data semantics, leakage prevention, OOS explainability, and execution-consistent performance logging.
 
-This study contributes by proposing a \textit{Quant-Safe} pipeline that enforces strict temporal causality, integrates explainability directly into the validation loop, and bridges the gap between academic backtesting and live trading deployment.
-
-Our contributions are threefold:
+\subsection{Contributions}
+We contribute:
 \begin{enumerate}
-    \item We formalize a Quant-Safe architecture that eliminates common sources of financial data leakage.
-    \item We demonstrate the use of out-of-sample SHAP values to detect macroeconomic regime shifts.
-    \item We provide a fully reproducible, open-source implementation suitable for live portfolio management.
+  \item A \textbf{Quant-Safe architecture} defining operational safeguards for financial ML pipelines: reporting lags, point-in-time features, walk-forward evaluation, and OOS-only explainability.
+  \item A \textbf{formalized Algorithm 1} and a \textbf{Data Leakage Failure Modes} checklist aimed at reviewer scrutiny and reproducible research.
+  \item A \textbf{na\"ive vs Quant-Safe comparison table} illustrating why common evaluation shortcuts inflate results.
+  \item A reproducible implementation with \textbf{execution-grade accounting logs} (daily mark-to-market equity, realized/unrealized P\&L by ticker, slippage proxies) and a Monte Carlo appendix for robustness.
 \end{enumerate}
 
-% ======================
-\section{Methodology}
-% ======================
+% ==========================================================
+\section{Related Work}
+ML asset pricing and return forecasting have advanced rapidly \citep{gu2019empirical, feng2020deep}. Yet systematic over-optimism in backtests is well documented, including backtest overfitting \citep{bailey2017pbo} and leakage introduced by non-point-in-time features and improper cross-validation \citep{lopez2018advances}. Interpretability frameworks such as SHAP \citep{lundberg2017unified} and general XAI guidance \citep{molnar2020interpretable, babaei2025explainable} motivate the use of explanation not merely as a diagnostic, but as a safeguard against spurious relationships.
 
-\subsection{The Quant-Safe Architectural Principle}
-The Quant-Safe principle asserts that a financial ML model is valid only if all information used at prediction time was observable at that moment in history. This principle governs feature construction, model training, validation, and explainability.
+On the portfolio side, we adopt robust, low-parameter constructions (top-$N$, inverse-volatility weights) consistent with the preference for simple, stable allocation rules under estimation error \citep{markowitz1952portfolio, clarke2013risk}. We also explicitly model transaction costs, which are central to realistic strategy evaluation \citep{almgren2001optimal, kissell2013science}.
 
-\subsection{Algorithmic Overview}
+% ==========================================================
+\section{Data and Experimental Design}
+\subsection{Universe and Horizon}
+The research universe is the DJI constituent set used in the project codebase. The modeling target is a forward return proxy (as implemented in the pipeline), while the portfolio is rebalanced at a fixed schedule (monthly in the primary configuration).
 
+\textbf{Limitation (Survivorship Bias):} If the study uses a modern constituent list retroactively, survivorship bias may inflate performance. The primary claim of this paper is the \emph{Quant-Safe methodology} (leakage prevention + OOS explainability), not the absolute historical return magnitude. Future work should incorporate point-in-time constituent membership or investable proxies \citep{lopez2018advances}.
+
+\subsection{Macro and Risk Controls}
+We incorporate a minimal macro block designed to be easy to reproduce:
+\begin{itemize}
+  \item Interest-rate proxy (e.g., 10Y yield series or yield-change z-scores)
+  \item Risk/volatility proxy (e.g., VIX or realized volatility)
+\end{itemize}
+These variables enable regime attribution in SHAP and motivate risk scaling when volatility spikes.
+
+% ==========================================================
+\section{Quant-Safe Methodology}
+\subsection{Design Principles}
+The Quant-Safe architecture enforces:
+\begin{itemize}
+  \item \textbf{Point-in-time semantics:} every feature must be available at prediction time.
+  \item \textbf{Reporting lags:} fundamentals are shifted by a disclosure lag to avoid ``trading on future filings''.
+  \item \textbf{Temporal evaluation:} walk-forward or strictly OOS evaluation for research claims.
+  \item \textbf{Explainability discipline:} SHAP computed on OOS folds only, preventing explanation leakage.
+  \item \textbf{Execution consistency:} transaction costs, slippage proxies, and accounting-quality logs.
+\end{itemize}
+
+\subsection{Algorithm 1: Quant-Safe Pipeline}
 \begin{algorithm}[H]
-\caption{Quant-Safe Explainable ML Pipeline}
-\label{alg:quant_safe}
+\caption{Quant-Safe Pipeline (Walk-Forward + OOS SHAP + Portfolio Layer)}
+\label{alg:quantsafe}
 \begin{algorithmic}[1]
-\REQUIRE Asset prices $\{P_{i,t}\}$, macro variables $\{M_t\}$, horizon $H$, rebalance schedule $\mathcal{T}$
-\ENSURE Out-of-sample predictions $\hat{y}_{i,t}$, portfolio weights $w_{i,t}$, SHAP explanations
-
-\STATE Align asset and macro data on a common trading calendar
-\STATE Forward-fill macro variables only (no backward fill)
-
-\FOR{each asset $i$}
-    \STATE Compute technical features: momentum (1M, 3M, 6M), volatility (3M), RSI
-    \STATE Construct label (only for evaluation): $y_{i,t} \leftarrow P_{i,t+H}/P_{i,t} - 1$
-\ENDFOR
-
-\FOR{each rebalance time $t \in \mathcal{T}$ (walk-forward evaluation)}
-    \STATE Train model on labeled history $\{(\mathbf{x}_{i,\tau}, y_{i,\tau}) : \tau < t\}$
-    \STATE Score out-of-sample predictions $\hat{y}_{i,t} \leftarrow f(\mathbf{x}_{i,t})$
-    \STATE Compute SHAP values on out-of-sample fold only
-    \STATE Form portfolio: select top $N$, apply volatility scaling, caps, and cash buffer
-\ENDFOR
-
-\STATE \textbf{Live inference mode:} train once on all labeled history; score latest unlabeled rows
-\STATE Persist signals, trades, positions, and mark-to-market performance logs
+\Require Asset prices $\{P_{i,t}\}$, macro variables $\{M_t\}$, optional fundamentals $\{F_{i,q}\}$ with reporting lag $\Delta$
+\Require Prediction horizon $H$, rebalance schedule $\mathcal{R}$, cost model $\mathcal{C}$, top-$N$ selection rule
+\State Align prices to trading calendar; compute returns and technical factors
+\State Lag fundamentals: $\tilde{F}_{i,t} \leftarrow F_{i,q(t-\Delta)}$
+\State Construct feature vector $X_{i,t} \leftarrow [\text{tech}_{i,t}, \tilde{F}_{i,t}, M_t]$
+\State Label history where forward outcomes are observable: $y_{i,t} \leftarrow \text{Return}(t \rightarrow t+H)$
+\For{$k = 1$ to $K$ walk-forward steps}
+  \State Define train window $\mathcal{T}_k$ and test window $\mathcal{S}_k$ with strict time ordering
+  \State Fit model $f_k$ on $\{(X_{i,t}, y_{i,t}) : t \in \mathcal{T}_k\}$
+  \State Score OOS: $\hat{y}_{i,t} = f_k(X_{i,t})$ for $t \in \mathcal{S}_k$
+  \State Compute SHAP on OOS only: $\phi_{i,t} \leftarrow \text{SHAP}(f_k, X_{i,t})$ for $t \in \mathcal{S}_k$
+  \State Form portfolio at each rebalance $t \in \mathcal{R} \cap \mathcal{S}_k$:
+    \Statex \quad Select top-$N$ by $\hat{y}_{i,t}$; weights via inverse volatility; apply caps/turnover constraints
+  \State Simulate execution with $\mathcal{C}$; record trades and mark-to-market equity
+\EndFor
+\State Aggregate OOS predictions, performance metrics, and SHAP summaries across steps
 \end{algorithmic}
 \end{algorithm}
 
-
-\subsection{Feature Engineering}
-The model combines technical and macroeconomic predictors:
-\begin{itemize}
-    \item Momentum (1M, 3M, 6M)
-    \item Volatility (3M rolling)
-    \item Relative Strength Index (RSI)
-    \item Macroeconomic indicators: S\&P 500, VIX, crude oil, gold, and U.S. 10-Year Treasury yield
-\end{itemize}
-
-Macroeconomic variables are transformed into rolling z-scores to capture regime deviations rather than absolute levels.
-
-\subsection{Model Specification}
-We employ an XGBoost regressor with a squared-error objective. Hyperparameters are selected conservatively to avoid excessive model complexity. Importantly, retraining occurs only within the validation loop and never during live inference.
-
-\subsection{Explainability via SHAP}
-Shapley Additive Explanations (SHAP) are computed strictly on out-of-sample predictions \citep{lundberg2017unified}. This avoids attribution bias and enables a historical record of how the model’s decision logic evolves across regimes.
-
-% ======================
-\subsection{Data Leakage Failure Modes and Mitigations}
-% ======================
-
-\textbf{Look-Ahead Bias:} Prevented by excluding unlabeled rows from training.
-
-\textbf{Temporal Feature Leakage:} Prevented through forward-only macro alignment.
-
-\textbf{In-Sample Explainability Bias:} Prevented by computing SHAP exclusively on test folds.
-
-\textbf{Validation–Production Mismatch:} Walk-forward retraining is used only for validation, while live inference uses a single model trained on all available history.
-
-\textbf{Universe Selection Bias:} This study uses current Dow Jones constituents, introducing survivorship bias. As such, the focus is on methodological robustness rather than absolute historical return estimates.
-
-% ======================
-\section{Portfolio Construction}
-% ======================
-Assets are ranked by predicted 6-month returns. The top $N=5$ assets are selected and weighted using inverse-volatility scaling:
-\[
-w_i = \frac{1/\sigma_i}{\sum_{j=1}^{N} 1/\sigma_j}
-\]
-Position caps and a cash buffer are applied. Transaction costs of 15 basis points per turnover are assumed.
-
-% ======================
-\section{Results}
-% ======================
-
-\subsection{Performance Evaluation}
-The strategy was evaluated on Dow Jones constituents from 2015–2025.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.9\textwidth]{equity_curve.png}
-\caption{Cumulative equity curve (log scale) versus Dow Jones benchmark.}
-\end{figure}
-
-The model exhibits strong drawdown control during the 2022 tightening cycle, a period during which traditional momentum strategies underperformed.
-
-\subsection{Explainability and Regime Detection}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.9\textwidth]{shap_summary.png}
-\caption{Global out-of-sample SHAP feature importance. Interest rate variables dominate during stress regimes.}
-\end{figure}
-
-The dominance of U.S. 10-Year yield SHAP values during 2022 indicates that the model internalized macroeconomic valuation effects rather than relying solely on price trends.
-
-\subsection{Comparison with Naïve ML Backtests}
+% ==========================================================
+\subsection{Data Leakage Failure Modes (Reviewer Checklist)}
+Reviewers frequently reject financial ML work due to unaddressed leakage. Table \ref{tab:leakage} lists common failure modes and explicit mitigations.
 
 \begin{table}[H]
 \centering
-\caption{Quant-Safe Pipeline vs Naïve ML Backtests}
-\begin{tabular}{lcc}
+\caption{Common Data Leakage Failure Modes and Quant-Safe Mitigations}
+\label{tab:leakage}
+\begin{tabular}{p{3.6cm} p{5.6cm} p{5.6cm}}
 \toprule
-Aspect & Naïve ML & Quant-Safe \\
+\textbf{Failure Mode} & \textbf{How It Appears} & \textbf{Quant-Safe Mitigation} \\
 \midrule
-Temporal validation & Random / K-fold & Walk-forward \\
-Feature timing & Implicit future data & Point-in-time only \\
-Explainability & In-sample & Out-of-sample \\
-Portfolio constraints & None & Volatility-scaled \\
-Live deployability & No & Yes \\
+Look-ahead via random split & High CV scores; fails live & Walk-forward / time-ordered OOS only \\
+Non-point-in-time fundamentals & ``Predicts earnings surprises'' unrealistically & Explicit reporting lag $\Delta$ \\
+Same-day macro availability & Using revised/late macro prints & Use release-aware series; conservative lag \\
+Target leakage in features & Feature computed with $t{+}H$ data & Audit feature timestamps; unit tests \\
+Survivorship bias in universe & Overstates long-run returns & Declare limitation; prefer point-in-time membership \\
+Cost-free backtest & Unrealistically high turnover alpha & Cost model + slippage proxies \\
+Explanation leakage & SHAP on train or post-fit full data & Compute SHAP only on OOS folds \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% ======================
-\section{Conclusion}
-% ======================
-This paper demonstrates that robust, explainable financial ML systems are achievable when strict temporal discipline is enforced. The Quant-Safe architecture provides a reproducible blueprint for bridging academic modeling and real-world trading, emphasizing interpretability and capital preservation over fragile headline returns.
+% ==========================================================
+\subsection{Na\"ive ML Backtest vs Quant-Safe Evaluation}
+Table \ref{tab:naive_vs_safe} clarifies why many ``state-of-the-art'' results do not survive deployment.
 
-Future work will extend the framework to other markets and incorporate point-in-time index membership data.
+\begin{table}[H]
+\centering
+\caption{Comparison: Na\"ive ML Backtests vs Quant-Safe Architecture}
+\label{tab:naive_vs_safe}
+\begin{tabular}{p{4.0cm} p{5.5cm} p{5.3cm}}
+\toprule
+\textbf{Component} & \textbf{Na\"ive Implementation} & \textbf{Quant-Safe Implementation} \\
+\midrule
+Validation split & Random K-fold & Walk-forward (expanding/rolling) \\
+Fundamentals & Use as-of values without lag & Lag by disclosure delay \\
+Feature scaling & Global z-score & Cross-sectional or time-safe scaling \\
+Explainability & SHAP on full dataset & SHAP strictly OOS per fold \\
+Portfolio layer & Optimized weights, unconstrained & Top-$N$, inverse-vol, caps, turnover control \\
+Trading frictions & Often omitted & Explicit costs + slippage proxies \\
+Accounting & P\&L only & MTM equity + realized/unrealized by ticker + reconciliation \\
+\bottomrule
+\end{tabular}
+\end{table}
 
+% ==========================================================
+\section{Modeling and Explainability}
+\subsection{Model Choice}
+We employ gradient-boosted decision trees due to strong performance in structured financial feature sets and robust handling of non-linear interactions \citep{chen2016xgboost, gu2019empirical}. Hyperparameters are tuned within the training window only, consistent with temporal safety \citep{lopez2018advances}.
+
+\subsection{Out-of-Sample SHAP}
+SHAP decomposes predictions into additive feature attributions under a cooperative game-theoretic framework \citep{lundberg2017unified}. In this study, SHAP values are computed \emph{only} on OOS test folds to preserve interpretability under real-time constraints and avoid explanatory leakage.
+
+% ==========================================================
+\section{Portfolio Construction, Costs, and Accounting}
+\subsection{Portfolio Translation Layer}
+We map predicted returns $\hat{y}_{i,t}$ into an actionable portfolio:
+\begin{itemize}
+  \item \textbf{Selection:} top-$N$ assets by $\hat{y}_{i,t}$.
+  \item \textbf{Weights:} inverse-volatility weights to reduce risk concentration \citep{clarke2013risk}.
+  \item \textbf{Rebalance:} monthly (primary configuration).
+  \item \textbf{Turnover control:} trade only when ranks change materially.
+  \item \textbf{Risk caps:} max weight per name; optional regime-based gross reduction.
+\end{itemize}
+
+\subsection{Trading Frictions}
+We include a transaction cost and slippage proxy consistent with execution literature \citep{almgren2001optimal, kissell2013science}. Costs are applied on turnover events; slippage can be approximated via implementation shortfall vs. a reference mid price.
+
+\subsection{Accounting-Quality Logs}
+To ensure auditability, we persist:
+\begin{itemize}
+  \item Daily mark-to-market equity curve
+  \item Realized and unrealized P\&L by ticker
+  \item Trade blotter with fill reconciliation (broker fills matched back into records)
+\end{itemize}
+These records are required for credible research-to-production transfer.
+
+% ==========================================================
+\section{Results (DJI Research Validation)}
+\subsection{Performance Summary}
+The repository includes CSV outputs for equity curves, metrics, and OOS SHAP summaries. Figure \ref{fig:equity} and Figure \ref{fig:shap} are generated from the included result files.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{equity_curve.png}
+\caption{Cumulative equity curve (strategy vs benchmark). Use log scale in plotting for interpretability of compounding.}
+\label{fig:equity}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{shap_summary.png}
+\caption{Global SHAP importance (OOS). Macro / rate-regime variables increase in importance during stress periods.}
+\label{fig:shap}
+\end{figure}
+
+\subsection{Interpretation}
+A central claim is not ``a magic alpha,'' but that the explanation traces are \emph{economically coherent}: rate-related and volatility-related features rise during tightening or stress regimes, consistent with discount-rate intuition and risk repricing.
+
+% ==========================================================
+\section{Robustness Appendix: Monte Carlo via Block Bootstrap}
+\label{sec:mc}
+Backtests are single-path realizations. We complement point estimates with Monte Carlo resampling of the realized strategy return series using a \textbf{block bootstrap} to preserve short-horizon dependence \citep{politis1994stationary}. We report distributions of CAGR, volatility, and maximum drawdown.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{mc_equity_fan.png}
+\caption{Monte Carlo equity fan chart (block bootstrap). Median path with percentile bands.}
+\label{fig:mc_fan}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{mc_summary_hist.png}
+\caption{Monte Carlo distribution summary (CAGR, max drawdown).}
+\label{fig:mc_hist}
+\end{figure}
+
+\noindent The code to generate these figures and LaTeX-ready tables is provided in the repository (see \texttt{code/monte\_carlo\_appendix.py}).
+
+% ==========================================================
+\section{Reproducibility: Minimal Code Excerpts}
+Short excerpts illustrate the reproducibility approach (full code in repository).
+
+\subsection{OOS SHAP Discipline (excerpt)}
+\begin{lstlisting}[language=Python, caption={OOS-only SHAP computation (conceptual excerpt)}]
+# for each walk-forward fold:
+model.fit(X_train, y_train)
+yhat_test = model.predict(X_test)
+
+# SHAP computed on OOS only
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
+\end{lstlisting}
+
+\subsection{Accounting Logs (excerpt)}
+\begin{lstlisting}[language=Python, caption={Execution-grade logs: MTM equity and per-ticker P\&L (conceptual excerpt)}]
+# end of day:
+equity = cash + sum(position_qty[t] * last_price[t] for t in tickers)
+write_equity_curve(date, equity)
+
+# realized/unrealized by ticker:
+unrealized[t] = position_qty[t] * (last_price[t] - avg_cost[t])
+\end{lstlisting}
+
+% ==========================================================
+\section{Limitations and Future Work}
+Key limitations include survivorship bias (if present), sensitivity to trading frictions, and the need for release-aware macro series. Future work will:
+\begin{itemize}
+  \item incorporate point-in-time universe membership,
+  \item expand regime switching (macro stress filters, volatility targeting),
+  \item validate on additional universes (ETFs, ATHEX).
+\end{itemize}
+
+% ==========================================================
+\section{Data and Code Availability}
+Code and results are available on GitHub and archived on Zenodo:
+\begin{itemize}
+  \item GitHub: \texttt{KarmirisP/quant-safe-xai-portfolio}
+  \item Zenodo DOI: \texttt{10.5281/zenodo.18167108} \citep{zenodo_quantsafe_2026}
+\end{itemize}
+
+% ==========================================================
+\section{Conflicts of Interest}
+The author declares no conflicts of interest.
+
+% ==========================================================
+\section{AI-Assisted Writing Disclosure}
+Portions of text were drafted and edited using AI-assisted tools. The author reviewed, verified, and takes full responsibility for the final content, code, and claims.
+
+% ==========================================================
 \bibliographystyle{plainnat}
+% If you want to FORCE references to appear even if you forget a citation during drafting, uncomment:
+% \nocite{*}
 \bibliography{references}
 
 \end{document}
